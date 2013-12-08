@@ -27,6 +27,7 @@ import com.android.volley.Response.ErrorListener;
 import com.android.volley.Response.Listener;
 import com.android.volley.VolleyError;
 import com.android.volley.toolbox.ImageRequest;
+import com.android.volley.toolbox.ImageTokenRequest;
 
 import java.util.HashMap;
 import java.util.LinkedList;
@@ -233,6 +234,70 @@ public class ImageLoader {
         mRequestQueue.add(newRequest);
         mInFlightRequests.put(cacheKey,
                 new BatchedImageRequest(newRequest, imageContainer));
+        return imageContainer;
+    }
+	
+	/**
+     * Returns the cached image or executes an ImageTokenRequest to retrieve the image
+     * 
+     * @param imageRequest
+     * @return
+     */
+    public ImageContainer getWithToken(String requestUrl, String token, ImageListener imageListener, int maxWidth, int maxHeight){
+    
+    	throwIfNotOnMainThread();
+    	
+    	final String cacheKey = getCacheKey(requestUrl, maxWidth, maxHeight);
+    	
+    	// Try to look up the request in the cache of remote images.
+        Bitmap cachedBitmap = mCache.getBitmap(cacheKey);
+        
+        if (cachedBitmap != null) {
+            // Return the cached bitmap.
+            ImageContainer container = new ImageContainer(cachedBitmap, requestUrl, null, null);
+            
+            imageListener.onResponse(container, true);
+            
+            return container;
+        }
+
+        // The bitmap did not exist in the cache, fetch it!
+        ImageContainer imageContainer =
+                new ImageContainer(null, requestUrl, cacheKey, imageListener);
+
+        // Update the caller to let them know that they should use the default bitmap.
+        imageListener.onResponse(imageContainer, true);
+
+        // Check to see if a request is already in-flight.
+        BatchedImageRequest request = mInFlightRequests.get(cacheKey);
+        
+        if (request != null) {
+            // If it is, add this request to the list of listeners.
+            request.addContainer(imageContainer);
+            return imageContainer;
+        }
+
+        // The request is not already in flight. Send the new request to the network and
+        // track it.
+        
+        Request<?> newRequest =
+                new ImageTokenRequest(requestUrl, token, new Listener<Bitmap>() {
+                    @Override
+                    public void onResponse(Bitmap response) {
+                        onGetImageSuccess(cacheKey, response);
+                    }
+                }, maxWidth, maxHeight,
+                Config.RGB_565, new ErrorListener() {
+                    @Override
+                    public void onErrorResponse(VolleyError error) {
+                        onGetImageError(cacheKey, error);
+                    }
+                });
+
+        mRequestQueue.add(newRequest);
+        
+        mInFlightRequests.put(cacheKey, new BatchedImageRequest(newRequest, imageContainer));
+        
         return imageContainer;
     }
 
